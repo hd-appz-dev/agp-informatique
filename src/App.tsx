@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useState} from 'react';
 import {APIProvider} from '@vis.gl/react-google-maps';
+import {ContactConfigModal} from './components/ContactConfigModal';
 import {ContactSection} from './components/ContactSection';
 import {Footer} from './components/Footer';
 import {GoogleReviewsSection} from './components/GoogleReviewsSection';
@@ -7,6 +8,11 @@ import {HeroSection} from './components/HeroSection';
 import {Navbar} from './components/Navbar';
 import {OfficeMapSection} from './components/OfficeMapSection';
 import {ServicesSection} from './components/ServicesSection';
+import {
+  loadContactConfig,
+  saveContactConfig,
+  type ContactConfig,
+} from './config/contactConfig';
 import type {ServiceItem} from './data/services';
 import {useAgpPlaceData} from './hooks/useAgpPlaceData';
 
@@ -34,6 +40,8 @@ function QuotaBanner() {
 function AgpPageContent({hasApiKey}: {hasApiKey: boolean}) {
   const {place, isLoading, error, reload} = useAgpPlaceData(hasApiKey);
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
+  const [contactConfig, setContactConfig] = useState<ContactConfig>(() => loadContactConfig());
+  const [configModalOpen, setConfigModalOpen] = useState(false);
 
   const handleSelectService = useCallback((service: ServiceItem) => {
     setSelectedService(service);
@@ -41,6 +49,11 @@ function AgpPageContent({hasApiKey}: {hasApiKey: boolean}) {
     if (contactEl) {
       contactEl.scrollIntoView({behavior: 'smooth'});
     }
+  }, []);
+
+  const handleSaveContactConfig = useCallback((nextConfig: ContactConfig) => {
+    saveContactConfig(nextConfig);
+    setContactConfig(nextConfig);
   }, []);
 
   return (
@@ -62,10 +75,22 @@ function AgpPageContent({hasApiKey}: {hasApiKey: boolean}) {
 
         <OfficeMapSection place={place} isLoading={isLoading} hasApiKey={hasApiKey} />
 
-        <ContactSection selectedService={selectedService} place={place} />
+        <ContactSection
+          selectedService={selectedService}
+          place={place}
+          contactConfig={contactConfig}
+          onOpenConfig={() => setConfigModalOpen(true)}
+        />
       </main>
 
-      <Footer place={place} />
+      <Footer place={place} onOpenContactConfig={() => setConfigModalOpen(true)} />
+
+      <ContactConfigModal
+        isOpen={configModalOpen}
+        config={contactConfig}
+        onClose={() => setConfigModalOpen(false)}
+        onSave={handleSaveContactConfig}
+      />
     </div>
   );
 }

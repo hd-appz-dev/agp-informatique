@@ -1,11 +1,18 @@
 import {useEffect, useState} from 'react';
-import {AlertCircle, CheckCircle2, Copy, Mail, Phone, Send} from 'lucide-react';
+import {AlertCircle, CheckCircle2, Copy, Mail, Phone, Send, Settings2} from 'lucide-react';
+import {
+  isSafeHttpsUrl,
+  isValidEmail,
+  type ContactConfig,
+} from '../config/contactConfig';
 import {AGP_SERVICES, INTERVENTION_CITIES, type ServiceItem} from '../data/services';
 import type {AgpPlaceData} from '../hooks/useAgpPlaceData';
 
 interface ContactSectionProps {
   selectedService: ServiceItem | null;
   place: AgpPlaceData | null;
+  contactConfig: ContactConfig;
+  onOpenConfig: () => void;
 }
 
 type ClientProfile = 'particulier' | 'professionnel';
@@ -31,7 +38,12 @@ interface FormErrors {
   message?: string;
 }
 
-export function ContactSection({selectedService, place}: ContactSectionProps) {
+export function ContactSection({
+  selectedService,
+  place,
+  contactConfig,
+  onOpenConfig,
+}: ContactSectionProps) {
   const [values, setValues] = useState<FormValues>({
     profile: 'particulier',
     mode: 'domicile',
@@ -46,6 +58,9 @@ export function ContactSection({selectedService, place}: ContactSectionProps) {
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [submittedRef, setSubmittedRef] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sentAutomatically, setSentAutomatically] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -83,8 +98,12 @@ export function ContactSection({selectedService, place}: ContactSectionProps) {
     return nextErrors;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const activeServiceTitle =
+    AGP_SERVICES.find((s) => s.id === values.serviceId)?.title || 'Intervention informatique';
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSendError(null);
     const validationErrors = validate(values);
     setErrors(validationErrors);
 
@@ -95,11 +114,100 @@ export function ContactSection({selectedService, place}: ContactSectionProps) {
     const refCode = `AGP-${new Date().getFullYear().toString().slice(-2)}${String(
       Math.floor(1000 + Math.random() * 9000)
     )}`;
+
+    const hasValidRecipient = isValidEmail(contactConfig.recipientEmail);
+
+    if (contactConfig.deliveryMode === 'formsubmit' && hasValidRecipient) {
+      setIsSending(true);
+      try {
+        const res = await fetch(
+          `https://formsubmit.co/ajax/${encodeURIComponent(contactConfig.recipientEmail)}`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({
+              reference: refCode,
+              profil: values.profile === 'professionnel' ? 'Professionnel' : 'Particulier',
+              service: activeServiceTitle,
+              modalite: `${values.mode === 'atelier' ? 'Atelier' : 'À domicile / Sur site'} (${values.city})`,
+              urgence: values.urgency === 'urgent' ? 'Urgent (sous 24h)' : 'Standard (24–48h)',
+              nom: values.name.trim(),
+              telephone: values.phone.trim(),
+              email: values.email.trim(),
+              message: values.message.trim(),
+              _subject: `Demande AGP Informatique - ${activeServiceTitle} (${refCode})`,
+              _replyto: values.email.trim(),
+              _template: 'table',
+            }),
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        setSentAutomatically(true);
+        setSubmittedRef(refCode);
+      } catch {
+        setSendError(
+          `L’envoi automatique vers ${contactConfig.recipientEmail} a échoué. Vous pouvez néanmoins envoyer la demande via votre messagerie ci-dessous.`
+        );
+        setSentAutomatically(false);
+        setSubmittedRef(refCode);
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
+    if (contactConfig.deliveryMode === 'webhook' && isSafeHttpsUrl(contactConfig.webhookUrl)) {
+      setIsSending(true);
+      try {
+        const res = await fetch(contactConfig.webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({
+            recipientEmail: contactConfig.recipientEmail,
+            reference: refCode,
+            profile: values.profile,
+            service: activeServiceTitle,
+            mode: values.mode,
+            city: values.city,
+            urgency: values.urgency,
+            name: values.name.trim(),
+            phone: values.phone.trim(),
+            email: values.email.trim(),
+            message: values.message.trim(),
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        setSentAutomatically(true);
+        setSubmittedRef(refCode);
+      } catch {
+        setSendError(
+          "L’envoi vers le service configuré n’a pas abouti. Vous pouvez utiliser l’envoi par messagerie ou copier le récapitulatif ci-dessous."
+        );
+        setSentAutomatically(false);
+        setSubmittedRef(refCode);
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
+    setSentAutomatically(false);
     setSubmittedRef(refCode);
   };
-
-  const activeServiceTitle =
-    AGP_SERVICES.find((s) => s.id === values.serviceId)?.title || 'Intervention informatique';
 
   const buildSummaryText = () =>
     [
@@ -204,26 +312,73 @@ export function ContactSection({selectedService, place}: ContactSectionProps) {
                       Référence : {submittedRef}
                     </p>
                     <h3 className="font-display text-2xl font-bold text-slate-900 mt-1">
-                      Demande d’intervention préparée
+                      {sentAutomatically
+                        ? 'Demande transmise par e-mail'
+                        : 'Demande d’intervention préparée'}
                     </h3>
                     <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-                      Merci {values.name}. Votre récapitulatif pour{' '}
-                      <span className="font-semibold text-slate-900">{activeServiceTitle}</span>{' '}
-                      ({values.city}) est prêt. Vous pouvez le copier ou appeler directement
-                      l’atelier pour confirmation immédiate.
+                      Merci {values.name}.{' '}
+                      {sentAutomatically && isValidEmail(contactConfig.recipientEmail) ? (
+                        <>
+                          Votre demande pour{' '}
+                          <span className="font-semibold text-slate-900">{activeServiceTitle}</span>{' '}
+                          ({values.city}) a bien été envoyée à{' '}
+                          <span className="font-mono text-slate-900">
+                            {contactConfig.recipientEmail}
+                          </span>
+                          .
+                        </>
+                      ) : (
+                        <>
+                          Votre récapitulatif pour{' '}
+                          <span className="font-semibold text-slate-900">{activeServiceTitle}</span>{' '}
+                          ({values.city}) est prêt.{' '}
+                          {isValidEmail(contactConfig.recipientEmail)
+                            ? `Cliquez ci-dessous pour l’envoyer à ${contactConfig.recipientEmail}.`
+                            : 'Configurez votre adresse e-mail de réception ou copiez le récapitulatif ci-dessous.'}
+                        </>
+                      )}
                     </p>
                   </div>
                 </div>
+
+                {sendError && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3"
+                  >
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true" />
+                    <span>{sendError}</span>
+                  </div>
+                )}
 
                 <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-xs font-mono text-slate-700 whitespace-pre-line leading-relaxed">
                   {buildSummaryText()}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
+                  <a
+                    href={`mailto:${
+                      isValidEmail(contactConfig.recipientEmail)
+                        ? encodeURIComponent(contactConfig.recipientEmail)
+                        : ''
+                    }?subject=${encodeURIComponent(
+                      `Demande AGP Informatique - ${activeServiceTitle} (${submittedRef})`
+                    )}&body=${encodeURIComponent(buildSummaryText())}`}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors"
+                  >
+                    <Mail className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>
+                      {isValidEmail(contactConfig.recipientEmail)
+                        ? `Envoyer à ${contactConfig.recipientEmail}`
+                        : 'Ouvrir dans ma messagerie'}
+                    </span>
+                  </a>
+
                   <button
                     type="button"
                     onClick={handleCopySummary}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                   >
                     <Copy className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>{copied ? 'Récapitulatif copié' : 'Copier le récapitulatif'}</span>
@@ -232,26 +387,20 @@ export function ContactSection({selectedService, place}: ContactSectionProps) {
                   {place?.nationalPhoneNumber && (
                     <a
                       href={`tel:${place.nationalPhoneNumber.replace(/\s+/g, '')}`}
-                      className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors tabular-nums"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors tabular-nums"
                     >
                       <Phone className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>Appeler le {place.nationalPhoneNumber}</span>
                     </a>
                   )}
 
-                  <a
-                    href={`mailto:?subject=${encodeURIComponent(
-                      `Demande AGP Informatique - ${activeServiceTitle} (${submittedRef})`
-                    )}&body=${encodeURIComponent(buildSummaryText())}`}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-800 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors"
-                  >
-                    <Mail className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>Ouvrir dans ma messagerie</span>
-                  </a>
-
                   <button
                     type="button"
-                    onClick={() => setSubmittedRef(null)}
+                    onClick={() => {
+                      setSubmittedRef(null);
+                      setSendError(null);
+                      setSentAutomatically(false);
+                    }}
                     className="text-xs font-medium text-slate-600 hover:text-slate-900 underline underline-offset-4 ml-auto"
                   >
                     Modifier la demande
@@ -530,16 +679,42 @@ export function ContactSection({selectedService, place}: ContactSectionProps) {
                   )}
                 </div>
 
-                <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <p className="text-xs text-slate-500">
-                    Devis gratuit avant toute intervention matérielle.
-                  </p>
+                <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-slate-200">
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-500">
+                      Devis gratuit avant toute intervention matérielle.
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                      <span>
+                        Destinataire :{' '}
+                        <span className="font-mono text-slate-800">
+                          {isValidEmail(contactConfig.recipientEmail)
+                            ? contactConfig.recipientEmail
+                            : 'Non configuré'}
+                        </span>
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <button
+                        type="button"
+                        onClick={onOpenConfig}
+                        className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:text-blue-800 underline underline-offset-2"
+                      >
+                        <Settings2 className="w-3 h-3" aria-hidden="true" />
+                        <span>
+                          {isValidEmail(contactConfig.recipientEmail)
+                            ? 'Modifier'
+                            : 'Configurer l’e-mail'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
                   <button
                     type="submit"
-                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
+                    disabled={isSending}
+                    className="inline-flex items-center justify-center gap-2 px-6 py-3.5 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700"
                   >
                     <Send className="w-4 h-4" aria-hidden="true" />
-                    <span>Valider ma demande</span>
+                    <span>{isSending ? 'Envoi en cours...' : 'Valider ma demande'}</span>
                   </button>
                 </div>
               </form>

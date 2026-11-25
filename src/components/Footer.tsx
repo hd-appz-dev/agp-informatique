@@ -2,9 +2,10 @@ import type {AgpPlaceData} from '../hooks/useAgpPlaceData';
 
 interface FooterProps {
   place: AgpPlaceData | null;
+  onOpenContactConfig: () => void;
 }
 
-export function Footer({place}: FooterProps) {
+export function Footer({place, onOpenContactConfig}: FooterProps) {
   return (
     <footer className="bg-slate-900 text-slate-300 border-t border-slate-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -72,6 +73,15 @@ export function Footer({place}: FooterProps) {
                 </a>
               </p>
             )}
+            <p className="pt-1">
+              <button
+                type="button"
+                onClick={onOpenContactConfig}
+                className="text-xs text-slate-400 hover:text-white underline underline-offset-4 transition-colors"
+              >
+                Configurer l’e-mail du formulaire
+              </button>
+            </p>
           </div>
         </div>
 
