@@ -10,7 +10,7 @@ interface GoogleReviewsSectionProps {
   hasApiKey: boolean;
 }
 
-type ReviewFilter = 'all' | 'five-stars' | 'recent';
+type ReviewSort = 'relevance' | 'recent';
 
 function ReviewAvatar({name, photoUri}: {name: string; photoUri: string | null}) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -68,18 +68,15 @@ export function GoogleReviewsSection({
   onRetry,
   hasApiKey,
 }: GoogleReviewsSectionProps) {
-  const [filter, setFilter] = useState<ReviewFilter>('all');
+  const [sortOrder, setSortOrder] = useState<ReviewSort>('relevance');
 
   const displayedReviews: AgpReview[] = useMemo(() => {
-    const base = place?.reviews ? [...place.reviews] : [];
-    if (filter === 'five-stars') {
-      return base.filter((r) => r.rating >= 5);
+    const fiveStarOnly = (place?.reviews ?? []).filter((r) => r.rating >= 5);
+    if (sortOrder === 'recent') {
+      return [...fiveStarOnly].sort((a, b) => (b.publishTimeMs ?? 0) - (a.publishTimeMs ?? 0));
     }
-    if (filter === 'recent') {
-      return base.sort((a, b) => (b.publishTimeMs ?? 0) - (a.publishTimeMs ?? 0));
-    }
-    return base;
-  }, [place, filter]);
+    return fiveStarOnly;
+  }, [place, sortOrder]);
 
   const formattedRating =
     place?.rating !== null && place?.rating !== undefined
@@ -131,39 +128,43 @@ export function GoogleReviewsSection({
           </div>
         </div>
 
-        {/* Filter bar */}
-        {!isLoading && !error && place && place.reviews.length > 0 && (
+        {/* Sort bar (strictly 5-star reviews) */}
+        {!isLoading && !error && displayedReviews.length > 0 && (
           <div className="mt-8 flex flex-wrap items-center justify-between gap-4">
-            <div
-              role="tablist"
-              aria-label="Filtrer les avis Google"
-              className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
-            >
-              {(
-                [
-                  {id: 'all', label: 'Tous les avis'},
-                  {id: 'five-stars', label: '5 étoiles'},
-                  {id: 'recent', label: 'Plus récents'},
-                ] as const
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={filter === tab.id}
-                  onClick={() => setFilter(tab.id)}
-                  className={`px-3.5 py-2 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-blue-700 ${
-                    filter === tab.id
-                      ? 'bg-white text-slate-900 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="text-xs font-medium text-slate-600">
+                Avis clients 5 étoiles uniquement
+              </span>
+              <div
+                role="tablist"
+                aria-label="Trier les avis 5 étoiles"
+                className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg"
+              >
+                {(
+                  [
+                    {id: 'relevance', label: 'Pertinence'},
+                    {id: 'recent', label: 'Plus récents'},
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={sortOrder === tab.id}
+                    onClick={() => setSortOrder(tab.id)}
+                    className={`px-3.5 py-2 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 focus-visible:outline-2 focus-visible:outline-blue-700 ${
+                      sortOrder === tab.id
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {place.writeAReviewUri && (
+            {place?.writeAReviewUri && (
               <a
                 href={place.writeAReviewUri}
                 target="_blank"
@@ -237,7 +238,7 @@ export function GoogleReviewsSection({
         ) : displayedReviews.length === 0 ? (
           <div className="mt-8 p-8 rounded-xl border border-slate-200 bg-slate-50 text-center">
             <p className="text-sm text-slate-600">
-              Aucun avis Google ne correspond à ce filtre pour le moment.
+              Aucun avis Google 5 étoiles n’est disponible pour le moment.
             </p>
           </div>
         ) : (
