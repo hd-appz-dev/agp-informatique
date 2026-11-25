@@ -1,0 +1,6 @@
+{
+  "name": "AGP Informatique — Les Clayes-sous-Bois",
+  "description": "Présentation des services d'AGP Informatique aux Clayes-sous-Bois : dépannage, maintenance, sécurité, avis Google en direct, carte des bureaux et prise de contact interactive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
